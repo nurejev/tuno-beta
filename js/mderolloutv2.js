@@ -77,7 +77,7 @@ const MdeRolloutV2Tool = (() => {
   // above the countries table in 👥 — the query, the hits, the picked
   // object's card and its model (MdeWaveCheck), the running state
   const wc = { q: "", busy: false, error: "", results: null, note: "", pick: null, card: null, model: null };
-  const tm = { region: null, test: new Map(), loading: false, error: "", text: "", note: "", busy: false, list: [], ticks: new Set(), rem: new Set(), live: new Set(), misses: [], q: "", hits: null, searching: false, csv: false, all: false, allAt: 0 };
+  const tm = { region: null, shut: false, test: new Map(), loading: false, error: "", text: "", note: "", busy: false, list: [], ticks: new Set(), rem: new Set(), live: new Set(), misses: [], q: "", hits: null, searching: false, csv: false, all: false, allAt: 0 };
   // 📡 Landing (10689, option A off the mockup canvas): Intune's check-in
   // status per new policy, joined to the wave members — the model, when it
   // was read, the running line, the region and the filter shown, the search
@@ -100,7 +100,15 @@ const MdeRolloutV2Tool = (() => {
   let regionSel = null;
   const regionDefault = () => (mem.model && mem.model.regions && mem.model.regions.length ? mem.model.regions[0].region : null);
   const regionGet = () => regionSel;
-  const regionSet = (v) => { regionSel = v || null; };
+  // 10735: a change of region is a change of wave for 🧪 too — its card
+  // opens fresh (tm.shut), and what was being added or taken out of the
+  // previous wave's test (the list, the ticks, → live, out) does not ride
+  // along into this one. The same region set again changes nothing.
+  const regionSet = (v) => {
+    const next = v || null;
+    if (next !== regionSel) { tm.shut = false; tm.error = ""; tm.text = ""; tm.note = ""; tm.list = []; tm.misses = []; tm.q = ""; tm.hits = null; tm.csv = false; tm.ticks.clear(); tm.rem.clear(); tm.live.clear(); }
+    regionSel = next;
+  };
   Object.defineProperty(mem, "region", { get: () => regionSel || regionDefault(), set: regionSet, enumerable: true, configurable: true });
   Object.defineProperty(tm, "region", { get: regionGet, set: regionSet, enumerable: true, configurable: true });
   Object.defineProperty(ld, "region", { get: regionGet, set: regionSet, enumerable: true, configurable: true });
@@ -1406,8 +1414,12 @@ const MdeRolloutV2Tool = (() => {
     finally { tm.loading = false; render(); }
   }
   function tmOpen(region) {
-    if (tm.region === region) { tm.region = null; render(); return; }
-    Object.assign(tm, { region, error: "", text: "", note: "", list: [], misses: [], q: "", hits: null, csv: false });
+    // 10735 (Mihai, 12 Nov at PVM: "when click in america move to live it
+    // jumps to euro"): since 10717 tm.region IS the one region, so closing
+    // the card by clearing it cleared the wave — and 👥 fell back to the
+    // first one. The card has its own open / shut now; the region stays.
+    if (tm.region === region) { tm.shut = !tm.shut; if (tm.shut && plan && !busy && planAnchor === "mvTmPanel") clearPlan(); render(); return; }
+    Object.assign(tm, { region, shut: false, error: "", text: "", note: "", list: [], misses: [], q: "", hits: null, csv: false });
     tm.ticks.clear(); tm.rem.clear(); tm.live.clear();
     if (plan && !busy && planAnchor === "mvTmPanel") clearPlan();
     tmRead(region);
@@ -1415,7 +1427,12 @@ const MdeRolloutV2Tool = (() => {
   // 🌊's column: to the row in 👥, opened
   function tmGo(region) {
     pane = "members"; mem.region = region; mem.unmapped = false; mem.left = false; mem.pil = false;
-    if (tm.region !== region) tmOpen(region); else render();
+    if (tm.region !== region) tmOpen(region); else { tm.shut = false; render(); }
+    const el = $("mvTmPanel"); if (el && el.scrollIntoView) el.scrollIntoView({ block: "start" });
+  }
+  // the row's "move to live →": the card of this wave, open — never a toggle
+  function tmShow(region) {
+    if (tm.region !== region) tmOpen(region); else { tm.shut = false; render(); }
     const el = $("mvTmPanel"); if (el && el.scrollIntoView) el.scrollIntoView({ block: "start" });
   }
   // the live state of the open region's members, from 👥's rows
@@ -1494,7 +1511,7 @@ const MdeRolloutV2Tool = (() => {
   // box first and the CSV folded behind it, then ② Dry run.
   function tmRowHtml(rg) {
     const r = rg.region, t = tm.test.get(r), N = MdeTest.names(waveRows, r);
-    const open = tm.region === r;
+    const open = tm.region === r && !tm.shut;
     const side = (a) => { const x = t && t[a]; return !N[a].name ? `<span class="muted">no ${a} wave</span>` : !t ? `<span class="muted">${tm.all ? "reading…" : "not read"}</span>` : !x.group ? `<code>${esc(N[a].name)}</code> <span class="muted">not created yet</span>` : `<code>${esc(x.name)}</code> ${x.nested ? chip("au-op create", "nested") : `<span style="color:var(--report)">not nested</span>`}`; };
     const live = t ? tmLive(r) : new Map();
     const nLive = [...live.values()].filter((v) => v.live).length;
@@ -1505,7 +1522,7 @@ const MdeRolloutV2Tool = (() => {
       <td class="mini" style="text-align:right">${t && t.device ? t.device.members.length.toLocaleString() : "—"}</td>
       <td class="mini">${side("user")}</td>
       <td class="mini">${side("device")}</td>
-      <td class="mini">${pending ? `<b>${esc(pending)}</b>` : nLive ? `${nLive} covered by a live country · <a href="#" data-mrtest="${esc(r)}">move to live →</a>` : t ? `<span class="muted">—</span>` : ""}</td></tr>${open ? `<tr><td colspan="7" style="padding:0 8px 12px 34px">${tmCard()}</td></tr>` : ""}`;
+      <td class="mini">${pending ? `<b>${esc(pending)}</b>` : nLive ? `${nLive} covered by a live country · <a href="#" data-mrtestlive="${esc(r)}">move to live →</a>` : t ? `<span class="muted">—</span>` : ""}</td></tr>${open ? `<tr><td colspan="7" style="padding:0 8px 12px 34px">${tmCard()}</td></tr>` : ""}`;
   }
   function tmCard() {
     const r = tm.region, t = tm.test.get(r), N = MdeTest.names(waveRows, r);
@@ -5406,6 +5423,7 @@ const MdeRolloutV2Tool = (() => {
       const st = t.closest("[data-mrstate]"); if (st) { view.state = st.dataset.mrstate || null; render(); return; }
       const ss = t.closest("[data-mrstatus]"); if (ss) { view.status = ss.dataset.mrstatus; render(); return; }
       if (t.closest("[data-mrdvread]")) { readDevices(); return; }
+      const tmv = t.closest("[data-mrtestlive]"); if (tmv) { e.preventDefault(); tmShow(tmv.dataset.mrtestlive); return; }
       const tmb = t.closest("[data-mrtest]"); if (tmb) { e.preventDefault(); tmOpen(tmb.dataset.mrtest); return; }
       const tmg = t.closest("[data-mrtestgo]"); if (tmg) { tmGo(tmg.dataset.mrtestgo); return; }
       if (t.id === "mvTmSearch") { tmSearch(); return; }

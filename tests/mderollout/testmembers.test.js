@@ -206,6 +206,33 @@ async function run() {
   } else ok("(no member of the demo's test is covered by a nested country group — the move to live is proven on the engine above)", true);
   ok("⭳ CSV of the test members is offered", !!$("mvTmCsvOut"));
 
+  // 10735 (Mihai, 12 Nov at PVM: "when click in america move to live it
+  // jumps to euro") — the 🧪 row opens and shuts its card; the wave stays.
+  // tm.region is the one region (10717): the old close cleared it, and 👥
+  // fell back to the first wave. The demo's only wave with a 🧪 row is Euro,
+  // so the proof is the region itself: it is never cleared by the row.
+  {
+    const row = () => D.querySelector('[data-mrtest="Euro"]');
+    D.querySelector('[data-mrmemregion="Euro"]').click();
+    ok("the wave's chip shows that wave with its 🧪 card open", st().mem.region === "Euro" && st().tm.region === "Euro" && !!row() && !!$("mvTmPanel") && !st().tm.shut);
+    row().click();
+    ok("a click on the 🧪 row shuts the card and KEEPS the wave chosen (it cleared the region: Americas fell back to Euro)", st().tm.region === "Euro" && st().dash.region === "Euro" && st().mem.region === "Euro" && st().tm.shut && !$("mvTmPanel") && !!row());
+    row().click();
+    ok("a second click opens it again, same wave", st().tm.region === "Euro" && !st().tm.shut && !!$("mvTmPanel"));
+    row().click();
+    w.MdeRolloutV2Tool._pane("waves");
+    D.querySelector('[data-mrtestgo="Euro"]').click();
+    ok("🌊's button opens a card that was shut, on its wave", st().pane === "members" && st().tm.region === "Euro" && !st().tm.shut && !!$("mvTmPanel"));
+    const other = st().mem.model.regions.map((x) => x.region).find((x) => x !== "Euro" && D.querySelector(`[data-mrmemregion="${x}"]`));
+    st().tm.ticks.add("carried-over"); st().tm.rem.add("carried-over"); st().tm.live.add("carried-over"); st().tm.list = [{ carried: true }]; st().tm.shut = true;
+    D.querySelector(`[data-mrmemregion="${other}"]`).click();
+    ok("another wave's chip: that wave, and nothing being added or taken out of the previous wave's test rides along", !!other && st().mem.region === other && st().tm.region === other && !st().tm.shut && !st().tm.ticks.size && !st().tm.rem.size && !st().tm.live.size && !st().tm.list.length);
+    D.querySelector('[data-mrmemregion="Euro"]').click();
+    ok("…and back: the first wave's card is open again", st().tm.region === "Euro" && !!$("mvTmPanel"));
+    const src = fs.readFileSync(path.join(ROOT, "js/mderolloutv2.js"), "utf8");
+    ok("the row's 'move to live →' is its own link, opening the card — never a toggle", src.includes('data-mrtestlive="${esc(r)}">move to live →') && src.includes("tmShow(tmv.dataset.mrtestlive)") && /function tmShow\(region\) \{\s+if \(tm\.region !== region\) tmOpen\(region\); else \{ tm\.shut = false; render\(\); \}/.test(src));
+  }
+
   console.log(`T28 test members: ${passed} passed, ${failed} failed`);
   process.exitCode = failed ? 1 : 0;
   w.close();
